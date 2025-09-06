@@ -1,372 +1,257 @@
-"use client"
+"use client";
 
-import { useEffect, useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { ChevronLeft, CheckCircle, Send, Users } from "lucide-react"
-import { API, getJSON } from "@/lib/api"
-import { useAuth } from "@/components/auth-provider"
-import { listMembers, type Member } from "@/lib/members"
-import {
-  listTasks,
-  createTask as apiCreateTask,
-  updateTask as apiUpdateTask,
-  type Task as ApiTask,
-} from "@/lib/tasks"
+import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ChevronLeft, CheckCircle, Send } from "lucide-react";
+import { getJSON, postJSON, patchJSON, API } from "@/lib/api";
+import { useAuth } from "@/components/auth-provider";
+import { listMembers, type Member } from "@/lib/members";
+import { listTasks, createTask as apiCreateTask, updateTask as apiUpdateTask } from "@/lib/tasks";
 
-type TaskStatusUI = "todo" | "in-progress" | "done"
-type TaskPriorityUI = "low" | "medium" | "high"
+type TaskStatusUI = "todo" | "in-progress" | "done";
+type TaskPriorityUI = "low" | "medium" | "high";
 
 export interface Project {
-  id: string
-  name: string
-  description: string
-  members: number
-  tasksCompleted: number
-  totalTasks: number
-  dueDate: string | null
-  status: "active" | "completed" | "overdue"
-  color: string
+  id: string;
+  name: string;
+  description: string;
+  members: number;
+  tasksCompleted: number;
+  totalTasks: number;
+  dueDate: string | null;
+  status: "active" | "completed" | "overdue";
+  color: string;
 }
 
 interface TaskUI {
-  id: number
-  title: string
-  description?: string
-  assigneeId: number | null
-  assigneeName: string
-  assigneeAvatar?: string | null
-  status: TaskStatusUI
-  priority: TaskPriorityUI
-  dueDate: string | null
+  id: number;
+  title: string;
+  description?: string;
+  assigneeId: number | null;
+  assigneeName: string;
+  status: TaskStatusUI;
+  priority: TaskPriorityUI;
+  dueDate: string | null;
 }
 
 interface Message {
-  id: string
-  author: string
-  authorAvatar: string
-  content: string
-  timestamp: string
+  id: number;
+  author: string;
+  content: string;
+  timestamp: string;
 }
 
 interface Leader {
-  userId: number
-  name: string
-  avatar: string | null
-  score: number
+  userId: string;
+  name: string;
+  avatar: string;
+  score: number;
 }
 
-/** Helpers to map API status ⇄ UI status */
 function apiToUiStatus(s: "todo" | "in_progress" | "done"): TaskStatusUI {
-  return s === "in_progress" ? "in-progress" : s
+  return s === "in_progress" ? "in-progress" : s;
 }
 function uiToApiStatus(s: TaskStatusUI): "todo" | "in_progress" | "done" {
-  return s === "in-progress" ? "in_progress" : s
+  return s === "in-progress" ? "in_progress" : s;
+}
+function initials(nameOrEmail?: string | null) {
+  if (!nameOrEmail) return "?";
+  const parts = nameOrEmail.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? "?";
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+function InitialAvatar({ label, size="8" }: { label: string; size?: "6"|"8"|"9" }) {
+  return (
+    <Avatar className={`h-${size} w-${size}`}>
+      <AvatarFallback className="bg-white text-black font-semibold">{label}</AvatarFallback>
+    </Avatar>
+  );
 }
 
 export default function ProjectDetail({
   project,
   onBack,
 }: {
-  project: Project
-  onBack: () => void
+  project: Project;
+  onBack: () => void;
 }) {
-  const { token } = useAuth()
-  const pidNum = Number(project.id)
+  const { token, user } = useAuth();
+  const pidNum = Number(project.id);
 
-  const [activeTab, setActiveTab] = useState<string>("board")
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<string>("board");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [tasks, setTasks] = useState<TaskUI[]>([])
-  const [messages, setMessages] = useState<Message[]>([])
-  const [members, setMembers] = useState<Member[]>([])
-  const [leaders, setLeaders] = useState<Leader[]>([])
+  const [tasks, setTasks] = useState<TaskUI[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [leaders, setLeaders] = useState<Leader[]>([]);
 
   // new task draft
-  const [newTitle, setNewTitle] = useState("")
-  const [newDesc, setNewDesc] = useState("")
-  const [newDue, setNewDue] = useState<string>("")
-  const [newPriority, setNewPriority] = useState<TaskPriorityUI>("medium")
-  const [newAssignee, setNewAssignee] = useState<number | "">("")
-  const [postingTask, setPostingTask] = useState(false)
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newDue, setNewDue] = useState<string>("");
+  const [newPriority, setNewPriority] = useState<TaskPriorityUI>("medium");
+  const [newAssignee, setNewAssignee] = useState<number | "">("");
+  const [newStatus, setNewStatus] = useState<TaskStatusUI>("todo");
+  const [postingTask, setPostingTask] = useState(false);
 
-  // invite member
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviting, setInviting] = useState(false)
+  const [msgText, setMsgText] = useState("");
+  const [postingMsg, setPostingMsg] = useState(false);
 
-  // chat draft
-  const [msgText, setMsgText] = useState("")
-  const [postingMsg, setPostingMsg] = useState(false)
-
-  // ------- Load all (members, tasks, leaderboard, chat) & auto-join -------
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function loadInner() {
-      if (!token) return
-      const [mem, apiTasks, lb] = await Promise.all([
-        listMembers(pidNum, token),
-        listTasks(pidNum, token),
-        fetch(`${API}/api/v1/analytics/leaderboard/${pidNum}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => (r.ok ? r.json() : [] as Leader[])),
-      ])
+      const [mem, apiTasks, msgs] = await Promise.all([
+        listMembers(pidNum, token!),
+        listTasks(pidNum, token!),
+        getJSON<Message[]>(`/api/v1/projects/${pidNum}/messages`),
+      ]);
 
-      if (cancelled) return
+      if (cancelled) return;
 
-      setMembers(mem || [])
+      setMembers(mem || []);
 
-      // build member map for name/avatar lookup
-      const memMap = new Map<number, Member>()
-      ;(mem || []).forEach((m) => memMap.set(m.id, m))
+      const memMap = new Map<number, Member>();
+      (mem || []).forEach((m) => memMap.set(m.id, m));
 
-      const tUI: TaskUI[] = (apiTasks || []).map((t: ApiTask) => {
-        const m = t.assignee_id ? memMap.get(t.assignee_id) : undefined
+      const tUI: TaskUI[] = (apiTasks || []).map((t: any) => {
+        const m = t.assignee_id ? memMap.get(t.assignee_id) : undefined;
         return {
           id: t.id,
           title: t.title,
           description: t.description || "",
           assigneeId: t.assignee_id ?? null,
-          assigneeName: m?.name || m?.email || "Unassigned",
-          assigneeAvatar: m ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.email}` : null,
+          assigneeName: (m?.name || m?.email || "Unassigned"),
           status: apiToUiStatus(t.status),
           priority: t.priority,
           dueDate: t.due_date ?? null,
-        }
-      })
-      setTasks(tUI)
-
-      setLeaders((lb || []).map((x: any) => ({
-        userId: Number(x.userId),
-        name: x.name || "Member",
-        avatar: x.avatar || null,
-        score: Number(x.score || 0),
-      })))
-
-      // optional chat (ignore failures)
-      try {
-        const chat = await fetch(`${API}/api/v1/projects/${pidNum}/messages`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (chat.ok) {
-          const m = await chat.json()
-          setMessages(m || [])
-        }
-      } catch {}
+        };
+      });
+      setTasks(tUI);
+      setMessages((msgs || []).map((x) => ({ ...x, id: Number(x.id) })));
     }
 
     async function loadAll() {
-      if (!token) return
-      setLoading(true); setError(null)
+      if (!token) return;
+      setLoading(true); setError(null);
       try {
-        await loadInner()
+        await loadInner();
       } catch (err: any) {
-        // If not a member, try to join and reload once
+        // if not a member, try to join then load once
         if (typeof err?.message === "string" && err.message.toLowerCase().includes("not a member")) {
-          try {
-            await fetch(`${API}/api/v1/projects/${pidNum}/join`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            await loadInner()
-          } catch {
-            if (!cancelled) setError("Failed to load project data (membership)")
-          }
-        } else if (!cancelled) {
-          setError(err?.message || "Failed to load project data")
+          await fetch(`${API}/api/v1/projects/${pidNum}/join`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          await loadInner();
+        } else {
+          setError(err?.message || "Failed to load project data");
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadAll()
-    return () => {
-      cancelled = true
-    }
-  }, [pidNum, token])
+    loadAll();
+    return () => { cancelled = true; };
+  }, [pidNum, token]);
 
-  // ------- Derived columns -------
   const columns = useMemo(() => {
     return {
       todo: tasks.filter((t) => t.status === "todo"),
       inProgress: tasks.filter((t) => t.status === "in-progress"),
       done: tasks.filter((t) => t.status === "done"),
-    }
-  }, [tasks])
+    };
+  }, [tasks]);
 
-  // ------- Helpers -------
   const refreshTasks = async () => {
-    if (!token) return
-    const apiTasks = await listTasks(pidNum, token)
-    const memMap = new Map<number, Member>()
-    members.forEach((m) => memMap.set(m.id, m))
-    const tUI: TaskUI[] = (apiTasks || []).map((t) => {
-      const m = t.assignee_id ? memMap.get(t.assignee_id) : undefined
+    const apiTasks = await listTasks(pidNum, token!);
+    const memMap = new Map<number, Member>();
+    members.forEach((m) => memMap.set(m.id, m));
+    const tUI: TaskUI[] = apiTasks.map((t: any) => {
+      const m = t.assignee_id ? memMap.get(t.assignee_id) : undefined;
       return {
         id: t.id,
         title: t.title,
         description: t.description || "",
         assigneeId: t.assignee_id ?? null,
         assigneeName: m?.name || m?.email || "Unassigned",
-        assigneeAvatar: m ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.email}` : null,
         status: apiToUiStatus(t.status),
         priority: t.priority,
         dueDate: t.due_date ?? null,
-      }
-    })
-    setTasks(tUI)
-  }
+      };
+    });
+    setTasks(tUI);
+  };
 
-  const refreshLeaderboard = async () => {
-    if (!token) return
-    const res = await fetch(`${API}/api/v1/analytics/leaderboard/${pidNum}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    })
-    if (res.ok) {
-      const lb = await res.json()
-      setLeaders(
-        (lb || []).map((x: any) => ({
-          userId: Number(x.userId),
-          name: x.name || "Member",
-          avatar: x.avatar || null,
-          score: Number(x.score || 0),
-        }))
-      )
-    }
-  }
-
-  // ------- Actions -------
   const moveTask = async (taskId: number, newStatus: TaskStatusUI) => {
     try {
-      if (!token) throw new Error("Not authenticated")
-      await apiUpdateTask(taskId, token, { status: uiToApiStatus(newStatus) })
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)))
-      if (newStatus === "done") await refreshLeaderboard()
+      await apiUpdateTask(taskId, token!, { status: uiToApiStatus(newStatus) });
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
     } catch (e: any) {
-      alert(e?.message || "Failed to update task")
+      alert(e?.message || "Failed to update task");
     }
-  }
+  };
 
-  const changeAssignee = async (taskId: number, assigneeId: number | null) => {
+  const assignTask = async (taskId: number, assigneeId: number | null) => {
     try {
-      if (!token) throw new Error("Not authenticated")
-      await apiUpdateTask(taskId, token, { assignee_id: assigneeId ?? 0 })
-      // optimistic update
-      const m = assigneeId ? members.find((x) => x.id === assigneeId) : undefined
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                assigneeId,
-                assigneeName: m?.name || m?.email || "Unassigned",
-                assigneeAvatar: m ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.email}` : null,
-              }
-            : t
-        )
-      )
+      await apiUpdateTask(taskId, token!, { assignee_id: assigneeId });
+      await refreshTasks();
     } catch (e: any) {
-      alert(e?.message || "Failed to change assignee")
+      alert(e?.message || "Failed to reassign task");
     }
-  }
-
-  const changePriority = async (taskId: number, priority: TaskPriorityUI) => {
-    try {
-      if (!token) throw new Error("Not authenticated")
-      await apiUpdateTask(taskId, token, { priority })
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, priority } : t)))
-    } catch (e: any) {
-      alert(e?.message || "Failed to update priority")
-    }
-  }
-
-  const markDoneToggle = async (taskId: number, checked: boolean) => {
-    await moveTask(taskId, checked ? "done" : "todo")
-  }
+  };
 
   const createTask = async () => {
-    if (!newTitle.trim()) return
+    if (!newTitle.trim()) return;
+    setPostingTask(true);
     try {
-      if (!token) throw new Error("Not authenticated")
-      setPostingTask(true)
-      await apiCreateTask(pidNum, token, {
+      await apiCreateTask(pidNum, token!, {
         title: newTitle.trim(),
         description: newDesc || "",
         assignee_id: newAssignee === "" ? null : Number(newAssignee),
-        due_date: newDue || null, // "YYYY-MM-DD"
+        due_date: newDue || null,
         priority: newPriority,
-      })
-      setNewTitle("")
-      setNewDesc("")
-      setNewDue("")
-      setNewPriority("medium")
-      setNewAssignee("")
-      await refreshTasks()
+        status: uiToApiStatus(newStatus),
+      });
+      setNewTitle("");
+      setNewDesc("");
+      setNewDue("");
+      setNewPriority("medium");
+      setNewAssignee("");
+      setNewStatus("todo");
+      await refreshTasks();
     } catch (e: any) {
-      alert(e?.message || "Failed to create task")
+      alert(e?.message || "Failed to create task");
     } finally {
-      setPostingTask(false)
+      setPostingTask(false);
     }
-  }
-
-  const inviteMember = async () => {
-    const email = inviteEmail.trim()
-    if (!email || !token) return
-    setInviting(true)
-    try {
-      const res = await fetch(`${API}/api/v1/projects/${pidNum}/members`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const mem = await listMembers(pidNum, token)
-      setMembers(mem || [])
-      setInviteEmail("")
-    } catch (e: any) {
-      alert(e?.message || "Failed to add member")
-    } finally {
-      setInviting(false)
-    }
-  }
+  };
 
   const sendMessage = async () => {
-    const body = msgText.trim()
-    if (!body || !token) return
-    setPostingMsg(true)
+    const body = msgText.trim();
+    if (!body) return;
+    setPostingMsg(true);
     try {
-      const res = await fetch(`${API}/api/v1/projects/${pidNum}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ content: body }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const m = await fetch(`${API}/api/v1/projects/${pidNum}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (m.ok) setMessages(await m.json())
-      setMsgText("")
+      await postJSON(`/api/v1/projects/${pidNum}/messages`, { content: body });
+      const m = await getJSON<Message[]>(`/api/v1/projects/${pidNum}/messages`);
+      setMessages(m || []);
+      setMsgText("");
     } catch (e: any) {
-      alert(e?.message || "Failed to send message")
+      alert(e?.message || "Failed to send message");
     } finally {
-      setPostingMsg(false)
+      setPostingMsg(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -405,50 +290,52 @@ export default function ProjectDetail({
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {columns.todo.map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      t={t}
-                      members={members}
-                      onMove={(s) => moveTask(t.id, s)}
-                      onAssign={(id) => changeAssignee(t.id, id)}
-                      onPriority={(p) => changePriority(t.id, p)}
-                      onDone={(checked) => markDoneToggle(t.id, checked)}
-                    />
+                    <TaskCard key={t.id} t={t} members={members} onMove={(s) => moveTask(t.id, s)} onAssign={(id) => assignTask(t.id, id)} />
                   ))}
                   {/* new task */}
                   <div className="space-y-2 border-t pt-3">
                     <Input placeholder="New task title" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
                     <Textarea placeholder="Description (optional)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
-                    <div className="grid md:grid-cols-3 grid-cols-1 gap-2">
+                    <div className="grid md:grid-cols-4 grid-cols-1 gap-2">
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">Assignee</label>
                         <select
-                          className="w-full rounded-md border bg-background p-2 text-sm"
+                          className="w-full rounded-md border bg-background p-2 text-sm h-9 leading-9 focus:outline-none focus:ring-2 focus:ring-primary/40"
                           value={newAssignee}
                           onChange={(e) => setNewAssignee(e.target.value === "" ? "" : Number(e.target.value))}
                         >
                           <option value="">Unassigned</option>
                           {members.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name || m.email}
-                            </option>
+                            <option key={m.id} value={m.id}>{m.name || m.email}</option>
                           ))}
                         </select>
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">Due date</label>
-                        <Input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
+                        <Input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className="h-9" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">Priority</label>
                         <select
-                          className="w-full rounded-md border bg-background p-2 text-sm"
+                          className="w-full rounded-md border bg-background p-2 text-sm h-9 leading-9 focus:outline-none focus:ring-2 focus:ring-primary/40"
                           value={newPriority}
                           onChange={(e) => setNewPriority(e.target.value as TaskPriorityUI)}
                         >
                           <option value="low">Low</option>
                           <option value="medium">Medium</option>
                           <option value="high">High</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Status</label>
+                        <select
+                          className="w-full rounded-md border bg-background p-2 text-sm h-9 leading-9 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          value={newStatus}
+                          onChange={(e) => setNewStatus(e.target.value as TaskStatusUI)}
+                        >
+                          <option value="todo">To-Do</option>
+                          <option value="in-progress">In-Progress</option>
+                          <option value="done">Done</option>
                         </select>
                       </div>
                     </div>
@@ -467,15 +354,7 @@ export default function ProjectDetail({
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {columns.inProgress.map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      t={t}
-                      members={members}
-                      onMove={(s) => moveTask(t.id, s)}
-                      onAssign={(id) => changeAssignee(t.id, id)}
-                      onPriority={(p) => changePriority(t.id, p)}
-                      onDone={(checked) => markDoneToggle(t.id, checked)}
-                    />
+                    <TaskCard key={t.id} t={t} members={members} onMove={(s) => moveTask(t.id, s)} onAssign={(id) => assignTask(t.id, id)} />
                   ))}
                 </CardContent>
               </Card>
@@ -488,15 +367,7 @@ export default function ProjectDetail({
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {columns.done.map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      t={t}
-                      members={members}
-                      onMove={(s) => moveTask(t.id, s)}
-                      onAssign={(id) => changeAssignee(t.id, id)}
-                      onPriority={(p) => changePriority(t.id, p)}
-                      onDone={(checked) => markDoneToggle(t.id, checked)}
-                    />
+                    <TaskCard key={t.id} t={t} members={members} onMove={(s) => moveTask(t.id, s)} onAssign={(id) => assignTask(t.id, id)} />
                   ))}
                 </CardContent>
               </Card>
@@ -513,10 +384,7 @@ export default function ProjectDetail({
                 <div className="space-y-3 max-h-[50vh] overflow-auto pr-2">
                   {messages.map((m) => (
                     <div key={m.id} className="flex items-start gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={m.authorAvatar || "/placeholder.svg"} />
-                        <AvatarFallback>{(m.author || "?").slice(0, 1).toUpperCase()}</AvatarFallback>
-                      </Avatar>
+                      <InitialAvatar label={initials(m.author)} size="8" />
                       <div className="flex-1">
                         <div className="text-sm font-medium">{m.author}</div>
                         <div className="text-sm text-muted-foreground">{new Date(m.timestamp).toLocaleString()}</div>
@@ -524,7 +392,9 @@ export default function ProjectDetail({
                       </div>
                     </div>
                   ))}
-                  {messages.length === 0 && <div className="text-sm text-muted-foreground">No messages yet.</div>}
+                  {messages.length === 0 && (
+                    <div className="text-sm text-muted-foreground">No messages yet.</div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Input placeholder="Write a message…" value={msgText} onChange={(e) => setMsgText(e.target.value)} />
@@ -543,75 +413,45 @@ export default function ProjectDetail({
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-semibold">Team Members</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Invite by email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                  />
-                  <Button onClick={inviteMember} disabled={inviting || !inviteEmail.trim()}>
-                    {inviting ? "Adding…" : "Add"}
-                  </Button>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  {members.map((m) => (
-                    <div key={m.id} className="flex items-center gap-3 border rounded-md p-3">
-                      <Avatar className="h-9 w-9">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${m.email}`} />
-                        <AvatarFallback>{(m.name || m.email || "?").slice(0, 1).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium">{m.name || m.email}</div>
-                        <div className="text-xs text-muted-foreground">{m.email}</div>
-                        <div className="text-xs mt-1 flex items-center gap-3">
-                          <span className="flex items-center gap-1">
-                            <CheckCircle className="h-3 w-3" /> {/* placeholder */} 0 done
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="h-3 w-3" /> {/* placeholder */} 1 project
-                          </span>
-                        </div>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {members.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 border rounded-md p-3">
+                    <InitialAvatar label={initials(m.name || m.email)} size="9" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{m.name || m.email}</div>
+                      <div className="text-xs text-muted-foreground">{m.email}</div>
+                      <div className="text-xs mt-1 flex items-center gap-3">
+                        <span className="flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3" /> {/* placeholder */} 0 done
+                        </span>
+                        <span className="flex items-center gap-1">1 project</span>
                       </div>
-                      <Badge variant="secondary">Member</Badge>
                     </div>
-                  ))}
-                  {members.length === 0 && <div className="text-sm text-muted-foreground">No members yet.</div>}
-                </div>
+                    <Badge variant="secondary">—</Badge>
+                  </div>
+                ))}
+                {members.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No members yet.</div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* LEADERBOARD */}
+          {/* LEADERBOARD (placeholder) */}
           <TabsContent value="leaderboard" className="mt-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader>
                 <CardTitle className="text-sm font-semibold">Team Leaderboard</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {leaders.length === 0 && <div className="text-sm text-muted-foreground">No activity yet.</div>}
-                {leaders.map((l, idx) => (
-                  <div key={l.userId} className="flex items-center gap-3 border rounded-md p-3">
-                    <div className="w-6 text-sm font-semibold">{idx + 1}</div>
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={l.avatar || "/placeholder.svg"} />
-                      <AvatarFallback>{l.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">{l.name}</div>
-                      <div className="text-xs text-muted-foreground">Score</div>
-                    </div>
-                    <Badge>{l.score.toFixed(0)}</Badge>
-                  </div>
-                ))}
+              <CardContent className="text-sm text-muted-foreground">
+                Coming soon (scores by tasks completed).
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </main>
     </div>
-  )
+  );
 }
 
 function TaskCard({
@@ -619,36 +459,22 @@ function TaskCard({
   members,
   onMove,
   onAssign,
-  onPriority,
-  onDone,
 }: {
-  t: TaskUI
-  members: Member[]
-  onMove: (s: TaskStatusUI) => void
-  onAssign: (assigneeId: number | null) => void
-  onPriority: (p: TaskPriorityUI) => void
-  onDone: (checked: boolean) => void
+  t: TaskUI;
+  members: Member[];
+  onMove: (s: TaskStatusUI) => void;
+  onAssign: (assigneeId: number | null) => void;
 }) {
   return (
     <div className="border rounded-md p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={t.status === "done"}
-              onChange={(e) => onDone(e.target.checked)}
-              className="h-4 w-4 accent-primary"
-              title="Mark done"
-            />
-            <div className="text-sm font-medium">{t.title}</div>
-          </div>
-          {t.description && <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{t.description}</div>}
+        <div>
+          <div className="text-sm font-medium">{t.title}</div>
+          {t.description && <div className="text-xs text-muted-foreground line-clamp-2">{t.description}</div>}
           <div className="mt-1 text-xs text-muted-foreground">
             {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
           </div>
         </div>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">Move</Button>
@@ -660,36 +486,15 @@ function TaskCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      <div className="mt-3 flex items-center justify-between gap-3">
-        {/* Priority */}
+      <div className="mt-3 flex items-center justify-between">
+        <Badge variant="secondary" className="capitalize">{t.priority}</Badge>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="capitalize">{t.priority}</Badge>
+          <InitialAvatar label={t.assigneeName ? t.assigneeName[0].toUpperCase() : "?"} size="6" />
+          <span className="text-xs">{t.assigneeName}</span>
           <select
-            className="border rounded-md h-7 px-2 bg-background text-xs"
-            value={t.priority}
-            onChange={(e) => onPriority(e.target.value as TaskPriorityUI)}
-            title="Change priority"
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-
-        {/* Assignee */}
-        <div className="flex items-center gap-2">
-          <Avatar className="h-6 w-6">
-            <AvatarImage src={t.assigneeAvatar || "/placeholder.svg"} />
-            <AvatarFallback>{(t.assigneeName || "?").slice(0, 1).toUpperCase()}</AvatarFallback>
-          </Avatar>
-          <select
-            className="border rounded-md h-7 px-2 bg-background text-xs"
+            className="border rounded-md h-8 px-2 bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
             value={t.assigneeId ?? ""}
-            onChange={(e) => {
-              const val = e.target.value
-              onAssign(val === "" ? null : Number(val))
-            }}
+            onChange={(e) => onAssign(e.target.value === "" ? null : Number(e.target.value))}
             title="Reassign"
           >
             <option value="">Unassigned</option>
@@ -702,5 +507,5 @@ function TaskCard({
         </div>
       </div>
     </div>
-  )
+  );
 }

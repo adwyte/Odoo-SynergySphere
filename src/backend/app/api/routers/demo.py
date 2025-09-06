@@ -11,7 +11,7 @@ from app.models.membership import ProjectMember, ProjectRole
 from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.comment import TaskComment
 from app.models.thread import ProjectThread, ThreadMessage
-from app.models.events import TaskEvent, TaskEventType
+#from app.models.events import TaskEvent, TaskEventType
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 

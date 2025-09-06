@@ -1,245 +1,201 @@
-"use client"
+"use client";
 
-import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { listMyProjects, createProject as apiCreateProject } from "@/lib/projects"
-import { useAuth } from "@/components/auth-provider"
-import { API } from "@/lib/api"
-import { useLogout } from "@/hooks/use-logout"
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { listMyProjects, createProject as apiCreateProject } from "@/lib/projects";
+import { useAuth } from "@/components/auth-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
+import NotificationDropdown from "@/components/notification-dropdown";
+import { useLogout } from "@/hooks/use-logout";
 
 import {
-  Plus,
-  Search,
-  Users,
-  Calendar,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  MoreHorizontal,
-  LogOut,
-  Settings,
-  BarChart3,
-  UserPlus,
-} from "lucide-react"
+  Plus, Search, Users, Calendar, CheckCircle, Clock, AlertCircle,
+  MoreHorizontal, LogOut, Settings, BarChart3, UserPlus
+} from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import ProjectDetail from "@/components/project-detail"
-import NotificationDropdown from "@/components/notification-dropdown"
-import { ThemeToggle } from "@/components/theme-toggle"
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-type ProjectStatus = "active" | "completed" | "overdue"
+type ProjectStatus = "active" | "completed" | "overdue";
 
+interface MemberPreview {
+  name?: string | null;
+  email: string;
+}
 interface Project {
-  id: string
-  name: string
-  description: string
-  members: number
-  tasksCompleted: number
-  totalTasks: number
-  dueDate: string | null
-  status: ProjectStatus
-  color: string
+  id: string;
+  name: string;
+  description: string;
+  members: number;
+  tasksCompleted: number;
+  totalTasks: number;
+  dueDate: string | null;
+  status: ProjectStatus;
+  color: string;
+  membersPreview?: MemberPreview[];
+}
+
+function initials(nameOrEmail?: string | null) {
+  if (!nameOrEmail) return "?";
+  const parts = nameOrEmail.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? "?";
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+function InitialAvatar({ label, size="6" }: { label: string; size?: "6"|"8"|"9" }) {
+  return (
+    <Avatar className={`h-${size} w-${size}`}>
+      <AvatarFallback className="bg-white text-black font-semibold">{label}</AvatarFallback>
+    </Avatar>
+  );
 }
 
 export default function Dashboard() {
-  const router = useRouter()
-  const { user, token, isLoading } = useAuth()
-  const doLogout = useLogout()
+  const router = useRouter();
+  const { user, token, isLoading } = useAuth();
+  const doLogout = useLogout();
 
   // redirect to /auth if not logged in
   useEffect(() => {
-    if (!isLoading && !user) router.push("/auth")
-  }, [isLoading, user, router])
+    if (!isLoading && !user) router.push("/auth");
+  }, [isLoading, user, router]);
 
-  const [searchQuery, setSearchQuery] = useState("")
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [bootstrapping, setBootstrapping] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  // load projects from API
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     async function load() {
-      if (!token) return
-      setLoading(true); setError(null)
+      if (!token) return;
+      setLoading(true); setError(null);
       try {
-        const data = await listMyProjects(token)
-        if (!cancelled)
-          setProjects(
-            (data || []).map((p) => ({
-              id: String(p.id),
-              name: p.name,
-              description: p.description,
-              members: p.members,
-              tasksCompleted: p.tasksCompleted,
-              totalTasks: p.totalTasks,
-              dueDate: p.dueDate,
-              status: p.status,
-              color: p.color,
-            })),
-          )
+        const data = await listMyProjects(token);
+        if (!cancelled) {
+          const shaped = (data || []).map((p: any) => ({
+            id: String(p.id),
+            name: p.name,
+            description: p.description,
+            members: p.members,
+            tasksCompleted: p.tasksCompleted,
+            totalTasks: p.totalTasks,
+            dueDate: p.dueDate,
+            status: p.status,
+            color: p.color,
+            membersPreview: p.membersPreview || [],
+          }));
+          setProjects(shaped);
+        }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load projects")
+        if (!cancelled) setError(e?.message || "Failed to load projects");
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
     }
-    load()
-    return () => { cancelled = true }
-  }, [token])
+    load();
+    return () => { cancelled = true; };
+  }, [token]);
 
   const filteredProjects = useMemo(() => {
-    const q = searchQuery.toLowerCase()
+    const q = searchQuery.toLowerCase();
     return projects.filter(
-      (p) => p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q),
-    )
-  }, [projects, searchQuery])
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description || "").toLowerCase().includes(q)
+    );
+  }, [projects, searchQuery]);
 
   const getStatusBadge = (status: ProjectStatus) => {
     switch (status) {
       case "active":
-        return <Badge variant="default" className="bg-primary text-primary-foreground">Active</Badge>
+        return <Badge variant="default" className="bg-primary text-primary-foreground">Active</Badge>;
       case "completed":
-        return <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>
+        return <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>;
       case "overdue":
-        return <Badge variant="destructive">Overdue</Badge>
-      default:
-        return null
+        return <Badge variant="destructive">Overdue</Badge>;
     }
-  }
+  };
 
   const getProgressPercentage = (completed: number, total: number) => {
-    if (!total) return 0
-    return Math.round((completed / total) * 100)
-  }
-
-  const handleProjectClick = (project: Project) => setSelectedProject(project)
-  const handleBackToDashboard = () => setSelectedProject(null)
+    if (!total) return 0;
+    return Math.round((completed / total) * 100);
+  };
 
   const handleCreateProject = async () => {
-    if (!token) return alert("Please sign in first.")
-    const name = prompt("Project name?")
-    if (!name) return
-    const description = prompt("Short description?") || ""
-    setCreating(true); setError(null)
+    if (!token) return alert("Please sign in first.");
+    const name = prompt("Project name?");
+    if (!name) return;
+    const description = prompt("Short description?") || "";
+    setCreating(true); setError(null);
     try {
-      await apiCreateProject(token, { name, description })
-      const data = await listMyProjects(token)
-      setProjects(
-        (data || []).map((p) => ({
-          id: String(p.id),
-          name: p.name,
-          description: p.description,
-          members: p.members,
-          tasksCompleted: p.tasksCompleted,
-          totalTasks: p.totalTasks,
-          dueDate: p.dueDate,
-          status: p.status,
-          color: p.color,
-        })),
-      )
+      await apiCreateProject(token, { name, description });
+      const data = await listMyProjects(token);
+      setProjects((data || []).map((p: any) => ({
+        id: String(p.id),
+        name: p.name,
+        description: p.description,
+        members: p.members,
+        tasksCompleted: p.tasksCompleted,
+        totalTasks: p.totalTasks,
+        dueDate: p.dueDate,
+        status: p.status,
+        color: p.color,
+        membersPreview: p.membersPreview || [],
+      })));
     } catch (e: any) {
-      setError(e?.message || "Failed to create project")
+      setError(e?.message || "Failed to create project");
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
-  }
+  };
 
-  const handleBootstrapDemo = async () => {
-    if (!token) return alert("Please sign in first.")
-    setBootstrapping(true)
-    try {
-      const res = await fetch(`${API}/api/v1/demo/bootstrap`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await listMyProjects(token) // refresh via authed API
-      setProjects(
-        (data || []).map((p) => ({
-          id: String(p.id),
-          name: p.name,
-          description: p.description,
-          members: p.members,
-          tasksCompleted: p.tasksCompleted,
-          totalTasks: p.totalTasks,
-          dueDate: p.dueDate,
-          status: p.status,
-          color: p.color,
-        })),
-      )
-    } catch (e: any) {
-      setError(e?.message || "Failed to populate demo data")
-    } finally {
-      setBootstrapping(false)
-    }
-  }
-
-  if (selectedProject) {
-    return <ProjectDetail project={selectedProject} onBack={handleBackToDashboard} />
-  }
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="flex h-16 items-center px-4 md:px-6">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <h1 className="text-xl font-bold text-foreground">SynergySphere</h1>
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Users className="w-5 h-5 text-primary-foreground" />
             </div>
+            <h1 className="text-xl font-bold text-foreground">SynergySphere</h1>
           </div>
 
-          <div className="ml-auto flex items-center space-x-2 sm:space-x-4">
+          <div className="ml-auto flex items-center gap-2 sm:gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.push("/analytics")} className="gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Analytics
+              <BarChart3 className="h-4 w-4" /> Analytics
             </Button>
             <Button variant="ghost" size="sm" onClick={() => router.push("/team")} className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              Team
+              <UserPlus className="h-4 w-4" /> Team
             </Button>
+
             <Button variant="ghost" size="sm" onClick={doLogout} className="gap-2">
-              <LogOut className="h-4 w-4" />
-              Log out
+              <LogOut className="h-4 w-4" /> Log out
             </Button>
+
             <ThemeToggle />
             <NotificationDropdown />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.name || "User"} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {(user?.name || user?.email || "?")
-                        .split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
+                <div className="relative h-8 w-8">
+                  <InitialAvatar label={initials(user.name || user.email)} size="8" />
+                </div>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user?.name || "—"}</p>
-                    <p className="text-xs leading-none text-muted-foreground">{user?.email || "—"}</p>
+                    <p className="text-sm font-medium leading-none">{user.name || "—"}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -258,12 +214,11 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Body */}
       <main className="flex-1 space-y-6 p-4 md:p-6">
-        {/* Welcome */}
         <div className="space-y-2">
           <h2 className="text-2xl font-bold text-foreground">
-            Welcome back, {(user?.name || user?.email || "there").split(" ")[0]}!
+            Welcome back, {(user.name || user.email).split(" ")[0]}!
           </h2>
           <p className="text-muted-foreground">Here's what's happening with your projects today.</p>
         </div>
@@ -323,7 +278,7 @@ export default function Dashboard() {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-lg font-semibold text-foreground">Your Projects</h3>
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -349,23 +304,18 @@ export default function Dashboard() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => (
-              <Card
-                key={project.id}
-                className="hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => handleProjectClick(project)}
-              >
+              <Card key={project.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader className="space-y-2">
                   <div className="flex items-start justify-between">
                     <div className={`w-3 h-3 rounded-full ${project.color}`} />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Edit Project</DropdownMenuItem>
-                        <DropdownMenuItem>View Details</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push(`/project/${project.id}`)}>Open</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-red-600">Delete Project</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -395,47 +345,33 @@ export default function Dashboard() {
                     />
                   </div>
 
+                  {/* Members preview + due date */}
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <div className="flex items-center space-x-1">
-                      <Users className="h-3 w-3" />
-                      <span>{project.members} members</span>
+                    <div className="flex items-center gap-1">
+                      {(project.membersPreview || []).map((m, i) => (
+                        <div key={i} className="-ml-1 first:ml-0">
+                          <div className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-white text-[10px] font-semibold text-black">
+                            {initials(m.name || m.email)}
+                          </div>
+                        </div>
+                      ))}
+                      <span className="ml-2">{project.members} members</span>
                     </div>
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       <span>{project.dueDate ? new Date(project.dueDate).toLocaleDateString() : "—"}</span>
                     </div>
                   </div>
+
+                  <Button variant="outline" className="w-full" onClick={() => router.push(`/project/${project.id}`)}>
+                    Open project
+                  </Button>
                 </CardContent>
               </Card>
             ))}
           </div>
-
-          {!loading && filteredProjects.length === 0 && (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                <Search className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-medium text-foreground mb-2">No projects found</h3>
-              <p className="text-muted-foreground mb-4">
-                {searchQuery ? "Try adjusting your search terms." : "Create your first project or populate a demo."}
-              </p>
-              <div className="flex gap-2 justify-center">
-                <Button
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                  onClick={handleCreateProject}
-                  disabled={creating}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  {creating ? "Creating..." : "Create Project"}
-                </Button>
-                <Button variant="secondary" onClick={handleBootstrapDemo} disabled={bootstrapping || !token}>
-                  {bootstrapping ? "Populating…" : "Quick Demo Populate"}
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       </main>
     </div>
-  )
+  );
 }
