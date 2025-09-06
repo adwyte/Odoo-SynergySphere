@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -31,9 +32,9 @@ import {
 import { useAuth } from "@/components/auth-provider"
 import ProjectDetail from "@/components/project-detail"
 import NotificationDropdown from "@/components/notification-dropdown"
-import { useRouter } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { getJSON, postJSON } from "@/lib/api"
+import { getJSON, postJSON, API } from "@/lib/api"
+import { useLogout } from "@/hooks/use-logout"
 
 type ProjectStatus = "active" | "completed" | "overdue"
 
@@ -50,8 +51,14 @@ interface Project {
 }
 
 export default function Dashboard() {
-  const { user, logout } = useAuth()
   const router = useRouter()
+  const { user, token, isLoading } = useAuth()
+  const doLogout = useLogout()
+
+  // redirect to /auth if not logged in
+  useEffect(() => {
+    if (!isLoading && !user) router.push("/auth")
+  }, [isLoading, user, router])
 
   const [searchQuery, setSearchQuery] = useState("")
   const [projects, setProjects] = useState<Project[]>([])
@@ -59,6 +66,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [creating, setCreating] = useState(false)
+  const [bootstrapping, setBootstrapping] = useState(false)
 
   // load projects from API
   useEffect(() => {
@@ -75,11 +83,11 @@ export default function Dashboard() {
         if (!cancelled) setLoading(false)
       }
     }
-    load()
+    if (user) load()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [user])
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.toLowerCase()
@@ -131,18 +139,34 @@ export default function Dashboard() {
     setCreating(true)
     setError(null)
     try {
-      await postJSON("/api/v1/projects", {
-        name,
-        description,
-        // you can add due_date later if you want (YYYY-MM-DD)
-      })
-      // refresh list
+      await postJSON("/api/v1/projects", { name, description })
       const data = await getJSON<Project[]>("/api/v1/projects")
       setProjects(data || [])
     } catch (e: any) {
       setError(e?.message || "Failed to create project")
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleBootstrapDemo = async () => {
+    if (!token) {
+      alert("Please sign in first.")
+      return
+    }
+    setBootstrapping(true)
+    try {
+      const res = await fetch(`${API}/api/v1/demo/bootstrap`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await getJSON<Project[]>("/api/v1/projects")
+      setProjects(data || [])
+    } catch (e: any) {
+      setError(e?.message || "Failed to populate demo data")
+    } finally {
+      setBootstrapping(false)
     }
   }
 
@@ -164,7 +188,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="ml-auto flex items-center space-x-4">
+          <div className="ml-auto flex items-center space-x-2 sm:space-x-4">
             <Button variant="ghost" size="sm" onClick={() => router.push("/analytics")} className="gap-2">
               <BarChart3 className="h-4 w-4" />
               Analytics
@@ -175,20 +199,28 @@ export default function Dashboard() {
               Team
             </Button>
 
+            {/* Always-visible Logout */}
+            <Button variant="ghost" size="sm" onClick={doLogout} className="gap-2">
+              <LogOut className="h-4 w-4" />
+              Log out
+            </Button>
+
             <ThemeToggle />
 
             <NotificationDropdown />
 
+            {/* Avatar menu (kept) */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.name} />
+                    <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.name || "User"} />
                     <AvatarFallback className="bg-primary text-primary-foreground">
-                      {user?.name
-                        ?.split(" ")
+                      {(user?.name || user?.email || "?")
+                        .split(" ")
                         .map((n) => n[0])
                         .join("")
+                        .slice(0, 2)
                         .toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -197,8 +229,8 @@ export default function Dashboard() {
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user?.name}</p>
-                    <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                    <p className="text-sm font-medium leading-none">{user?.name || "—"}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{user?.email || "—"}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -207,7 +239,7 @@ export default function Dashboard() {
                   <span>Settings</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>
+                <DropdownMenuItem onClick={doLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Log out</span>
                 </DropdownMenuItem>
@@ -221,7 +253,9 @@ export default function Dashboard() {
       <main className="flex-1 space-y-6 p-4 md:p-6">
         {/* Welcome Section */}
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-foreground">Welcome back, {user?.name?.split(" ")[0]}!</h2>
+          <h2 className="text-2xl font-bold text-foreground">
+            Welcome back, {(user?.name || user?.email || "there").split(" ")[0]}!
+          </h2>
           <p className="text-muted-foreground">Here's what's happening with your projects today.</p>
         </div>
 
@@ -302,12 +336,8 @@ export default function Dashboard() {
           </div>
 
           {/* Loading / Error states */}
-          {loading && (
-            <div className="text-sm text-muted-foreground">Loading projects…</div>
-          )}
-          {error && (
-            <div className="text-sm text-red-500">Error: {error}</div>
-          )}
+          {loading && <div className="text-sm text-muted-foreground">Loading projects…</div>}
+          {error && <div className="text-sm text-red-500">Error: {error}</div>}
 
           {/* Projects Grid */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -373,6 +403,7 @@ export default function Dashboard() {
             ))}
           </div>
 
+          {/* Empty state with demo populate */}
           {!loading && filteredProjects.length === 0 && (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
@@ -380,9 +411,9 @@ export default function Dashboard() {
               </div>
               <h3 className="text-lg font-medium text-foreground mb-2">No projects found</h3>
               <p className="text-muted-foreground mb-4">
-                {searchQuery ? "Try adjusting your search terms." : "Create your first project to get started."}
+                {searchQuery ? "Try adjusting your search terms." : "Create your first project or populate a demo."}
               </p>
-              {!searchQuery && (
+              <div className="flex gap-2 justify-center">
                 <Button
                   className="bg-primary hover:bg-primary/90 text-primary-foreground"
                   onClick={handleCreateProject}
@@ -391,7 +422,10 @@ export default function Dashboard() {
                   <Plus className="h-4 w-4 mr-2" />
                   {creating ? "Creating..." : "Create Project"}
                 </Button>
-              )}
+                <Button variant="secondary" onClick={handleBootstrapDemo} disabled={bootstrapping || !token}>
+                  {bootstrapping ? "Populating…" : "Quick Demo Populate"}
+                </Button>
+              </div>
             </div>
           )}
         </div>
