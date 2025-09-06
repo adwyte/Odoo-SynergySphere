@@ -1,100 +1,155 @@
+# app/api/routers/tasks.py
+from datetime import date, datetime
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+
 from app.db.session import get_db
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.api.routers.auth import get_current_user
 from app.models.user import User
-from app.models.comment import TaskComment
-from app.models.events import TaskEvent, TaskEventType
+from app.models.project import Project
+from app.models.membership import ProjectMember
+from app.models.task import Task, TaskStatus, TaskPriority
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-def _status_to_front(s: TaskStatus) -> str:
-    return "in-progress" if s == TaskStatus.in_progress else s.value
+# ---------- Schemas ----------
 
-@router.get("/by-project/{project_id}")
-def list_tasks(project_id: int, db: Session = Depends(get_db)):
-    tasks = (
-        db.query(
-            Task,
-            User.name.label("assignee_name"),
-            User.avatar_url.label("assignee_avatar"),
-            func.count(TaskComment.id).label("comments_count"),
+TaskStatusLiteral = Literal["todo", "in-progress", "done"]
+TaskPriorityLiteral = Literal["low", "medium", "high"]
+
+class TaskOut(BaseModel):
+    id: int
+    title: str
+    description: str | None = None
+    assignee: str
+    assigneeAvatar: str | None = None
+    status: TaskStatusLiteral
+    priority: TaskPriorityLiteral
+    dueDate: date | None = None
+    createdAt: datetime
+    comments: int = 0
+    attachments: int = 0
+
+class TaskCreate(BaseModel):
+    project_id: int
+    title: str = Field(..., min_length=1, max_length=300)
+    description: str = ""
+    assignee_id: int | None = None
+    priority: TaskPriorityLiteral = "medium"
+    due_date: date | None = None
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    assignee_id: int | None = None
+    status: TaskStatusLiteral | None = None
+    priority: TaskPriorityLiteral | None = None
+    due_date: date | None = None
+
+def ensure_member(db: Session, project_id: int, user_id: int):
+    exists = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id
         )
-        .outerjoin(User, User.id == Task.assignee_id)
-        .outerjoin(TaskComment, TaskComment.task_id == Task.id)
-        .filter(Task.project_id == project_id)
-        .group_by(Task.id, User.name, User.avatar_url)
-        .order_by(Task.created_at.desc())
-        .all()
+    )
+    if not exists:
+        raise HTTPException(status_code=403, detail="Not a member of this project")
+
+def to_task_out(t: Task, assignee: User | None) -> TaskOut:
+    return TaskOut(
+        id=t.id,
+        title=t.title,
+        description=t.description or "",
+        assignee=(assignee.name or assignee.email) if assignee else "Unassigned",
+        assigneeAvatar=(assignee.avatar_url if assignee else None),
+        status=t.status.value,
+        priority=t.priority.value,
+        dueDate=t.due_date,
+        createdAt=t.created_at,
+        comments=0,
+        attachments=0,
     )
 
-    out = []
-    for t, assignee_name, assignee_avatar, comments_count in tasks:
-        out.append({
-            "id": str(t.id),
-            "title": t.title,
-            "description": t.description,
-            "assignee": assignee_name or "Unassigned",
-            "assigneeAvatar": assignee_avatar or "",
-            "status": _status_to_front(t.status),       # "todo"|"in-progress"|"done"
-            "priority": t.priority.value,
-            "dueDate": t.due_date.isoformat() if t.due_date else None,
-            "createdAt": t.created_at.isoformat(),
-            "comments": int(comments_count or 0),
-            "attachments": int(t.attachments_count or 0),
-        })
+@router.get("/by-project/{project_id}", response_model=list[TaskOut])
+def list_tasks(project_id: int, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+    p = db.get(Project, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_member(db, project_id, me.id)
+
+    rows = db.execute(
+        select(Task, User)
+        .join(User, User.id == Task.assignee_id, isouter=True)
+        .where(Task.project_id == project_id)
+        .order_by(Task.id.desc())
+    ).all()
+
+    out: list[TaskOut] = []
+    for t, assignee in rows:
+        out.append(to_task_out(t, assignee))
     return out
 
-@router.post("/")
-def create_task(payload: dict, db: Session = Depends(get_db)):
-    required = ["project_id", "title"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="project_id and title are required")
-    t = Task(
-        project_id=payload["project_id"],
-        title=payload["title"],
-        description=payload.get("description"),
-        status=TaskStatus.todo,
-        priority=TaskPriority(payload.get("priority","medium")),
-        assignee_id=payload.get("assignee_id"),
-        created_by_id=payload.get("created_by_id"),
-        due_date=payload.get("due_date"),
-        attachments_count=payload.get("attachments", 0),
-    )
-    db.add(t); db.flush()
-    db.add(TaskEvent(task_id=t.id, project_id=t.project_id, actor_id=payload.get("created_by_id"), type=TaskEventType.created))
-    db.commit(); db.refresh(t)
-    return {"id": str(t.id), "title": t.title, "status": _status_to_front(t.status)}
+@router.post("", response_model=TaskOut, status_code=201)
+def create_task(payload: TaskCreate, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+    p = db.get(Project, payload.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ensure_member(db, payload.project_id, me.id)
 
-@router.patch("/{task_id}")
-def update_task(task_id: int, payload: dict, db: Session = Depends(get_db)):
-    t = db.query(Task).filter(Task.id == task_id).first()
+    assignee: User | None = None
+    if payload.assignee_id:
+        assignee = db.get(User, payload.assignee_id)
+        if not assignee:
+            raise HTTPException(status_code=400, detail="Assignee not found")
+        # Ensure assignee is in project
+        ensure_member(db, payload.project_id, payload.assignee_id)
+
+    t = Task(
+        project_id=payload.project_id,
+        title=payload.title,
+        description=payload.description or "",
+        assignee_id=payload.assignee_id,
+        status=TaskStatus.todo,
+        priority=TaskPriority(payload.priority),
+        due_date=payload.due_date,
+        created_by_id=me.id,
+    )
+    db.add(t); db.commit(); db.refresh(t)
+
+    return to_task_out(t, assignee)
+
+@router.patch("/{task_id}", response_model=TaskOut)
+def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+    t = db.get(Task, task_id)
     if not t:
         raise HTTPException(status_code=404, detail="Task not found")
+    ensure_member(db, t.project_id, me.id)
 
-    prev_status = t.status
-    for field in ["title", "description", "due_date", "attachments_count"]:
-        if field in payload: setattr(t, field, payload[field])
-    if "priority" in payload:
-        t.priority = TaskPriority(payload["priority"])
-    if "status" in payload:
-        # map "in-progress" -> in_progress
-        new = payload["status"].replace("-", "_")
-        t.status = TaskStatus(new)
-    if "assignee_id" in payload:
-        t.assignee_id = payload["assignee_id"]
+    if payload.title is not None:
+        t.title = payload.title
+    if payload.description is not None:
+        t.description = payload.description
+    if payload.status is not None:
+        t.status = TaskStatus(payload.status)
+    if payload.priority is not None:
+        t.priority = TaskPriority(payload.priority)
+    if payload.due_date is not None:
+        t.due_date = payload.due_date
+    if payload.assignee_id is not None:
+        if payload.assignee_id == 0:
+            t.assignee_id = None
+        else:
+            assignee = db.get(User, payload.assignee_id)
+            if not assignee:
+                raise HTTPException(status_code=400, detail="Assignee not found")
+            ensure_member(db, t.project_id, payload.assignee_id)
+            t.assignee_id = payload.assignee_id
 
-    db.flush()
-    # events
-    if "status" in payload and t.status != prev_status:
-        db.add(TaskEvent(
-            task_id=t.id, project_id=t.project_id,
-            actor_id=payload.get("actor_id"),
-            type=TaskEventType.status_changed,
-            from_status=prev_status.value, to_status=t.status.value
-        ))
-        if t.status == TaskStatus.done:
-            db.add(TaskEvent(task_id=t.id, project_id=t.project_id, actor_id=payload.get("actor_id"), type=TaskEventType.completed))
     db.commit(); db.refresh(t)
-    return {"id": str(t.id), "status": t.status.value}
+    assignee = db.get(User, t.assignee_id) if t.assignee_id else None
+    return to_task_out(t, assignee)
