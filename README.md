@@ -11,6 +11,10 @@ SynergySphere is a modern, full-stack project management system built with FastA
 - **Real-time Analytics**: Track project progress and team performance
 - **Responsive UI**: Modern interface built with Next.js and Tailwind CSS
 
+## 🎥 Demo Video
+
+Check out our project demo video: [SynergySphere Demo](https://drive.google.com/file/d/1U0ivugW2rsHybPsXWIxcXxiJtKb0hVqw/view?usp=sharing)
+
 ## 🛠️ Technology Stack
 
 ### Backend
