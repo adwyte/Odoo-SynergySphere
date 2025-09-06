@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -33,6 +33,9 @@ import ProjectDetail from "@/components/project-detail"
 import NotificationDropdown from "@/components/notification-dropdown"
 import { useRouter } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { getJSON, postJSON } from "@/lib/api"
+
+type ProjectStatus = "active" | "completed" | "overdue"
 
 interface Project {
   id: string
@@ -41,72 +44,53 @@ interface Project {
   members: number
   tasksCompleted: number
   totalTasks: number
-  dueDate: string
-  status: "active" | "completed" | "overdue"
+  dueDate: string | null
+  status: ProjectStatus
   color: string
 }
-
-const mockProjects: Project[] = [
-  {
-    id: "1",
-    name: "Website Redesign",
-    description: "Complete overhaul of company website with new branding",
-    members: 5,
-    tasksCompleted: 12,
-    totalTasks: 18,
-    dueDate: "2024-02-15",
-    status: "active",
-    color: "bg-blue-500",
-  },
-  {
-    id: "2",
-    name: "Mobile App Launch",
-    description: "Launch new mobile application for iOS and Android",
-    members: 8,
-    tasksCompleted: 24,
-    totalTasks: 30,
-    dueDate: "2024-03-01",
-    status: "active",
-    color: "bg-green-500",
-  },
-  {
-    id: "3",
-    name: "Q1 Marketing Campaign",
-    description: "Develop and execute marketing strategy for Q1",
-    members: 4,
-    tasksCompleted: 15,
-    totalTasks: 15,
-    dueDate: "2024-01-31",
-    status: "completed",
-    color: "bg-purple-500",
-  },
-  {
-    id: "4",
-    name: "Database Migration",
-    description: "Migrate legacy database to new cloud infrastructure",
-    members: 3,
-    tasksCompleted: 8,
-    totalTasks: 20,
-    dueDate: "2024-01-20",
-    status: "overdue",
-    color: "bg-red-500",
-  },
-]
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
+
   const [searchQuery, setSearchQuery] = useState("")
-  const [projects] = useState<Project[]>(mockProjects)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [creating, setCreating] = useState(false)
 
-  const filteredProjects = projects.filter(
-    (project) =>
-      project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  // load projects from API
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await getJSON<Project[]>("/api/v1/projects")
+        if (!cancelled) setProjects(data || [])
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Failed to load projects")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const getStatusBadge = (status: Project["status"]) => {
+  const filteredProjects = useMemo(() => {
+    const q = searchQuery.toLowerCase()
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description || "").toLowerCase().includes(q),
+    )
+  }, [projects, searchQuery])
+
+  const getStatusBadge = (status: ProjectStatus) => {
     switch (status) {
       case "active":
         return (
@@ -128,6 +112,7 @@ export default function Dashboard() {
   }
 
   const getProgressPercentage = (completed: number, total: number) => {
+    if (!total) return 0
     return Math.round((completed / total) * 100)
   }
 
@@ -137,6 +122,28 @@ export default function Dashboard() {
 
   const handleBackToDashboard = () => {
     setSelectedProject(null)
+  }
+
+  const handleCreateProject = async () => {
+    const name = prompt("Project name?")
+    if (!name) return
+    const description = prompt("Short description?") || ""
+    setCreating(true)
+    setError(null)
+    try {
+      await postJSON("/api/v1/projects", {
+        name,
+        description,
+        // you can add due_date later if you want (YYYY-MM-DD)
+      })
+      // refresh list
+      const data = await getJSON<Project[]>("/api/v1/projects")
+      setProjects(data || [])
+    } catch (e: any) {
+      setError(e?.message || "Failed to create project")
+    } finally {
+      setCreating(false)
+    }
   }
 
   if (selectedProject) {
@@ -239,7 +246,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-400">
-                {projects.reduce((acc, p) => acc + p.tasksCompleted, 0)}
+                {projects.reduce((acc, p) => acc + (p.tasksCompleted || 0), 0)}
               </div>
             </CardContent>
           </Card>
@@ -251,7 +258,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-400">
-                {projects.reduce((acc, p) => acc + (p.totalTasks - p.tasksCompleted), 0)}
+                {projects.reduce((acc, p) => acc + ((p.totalTasks || 0) - (p.tasksCompleted || 0)), 0)}
               </div>
             </CardContent>
           </Card>
@@ -283,12 +290,24 @@ export default function Dashboard() {
                   className="pl-8 bg-input border-border"
                 />
               </div>
-              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              <Button
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                onClick={handleCreateProject}
+                disabled={creating}
+              >
                 <Plus className="h-4 w-4 mr-2" />
-                New Project
+                {creating ? "Creating..." : "New Project"}
               </Button>
             </div>
           </div>
+
+          {/* Loading / Error states */}
+          {loading && (
+            <div className="text-sm text-muted-foreground">Loading projects…</div>
+          )}
+          {error && (
+            <div className="text-sm text-red-500">Error: {error}</div>
+          )}
 
           {/* Projects Grid */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -346,7 +365,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center space-x-1">
                       <Calendar className="h-3 w-3" />
-                      <span>{new Date(project.dueDate).toLocaleDateString()}</span>
+                      <span>{project.dueDate ? new Date(project.dueDate).toLocaleDateString() : "—"}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -354,7 +373,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {filteredProjects.length === 0 && (
+          {!loading && filteredProjects.length === 0 && (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                 <Search className="h-8 w-8 text-muted-foreground" />
@@ -364,9 +383,13 @@ export default function Dashboard() {
                 {searchQuery ? "Try adjusting your search terms." : "Create your first project to get started."}
               </p>
               {!searchQuery && (
-                <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                <Button
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  onClick={handleCreateProject}
+                  disabled={creating}
+                >
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Project
+                  {creating ? "Creating..." : "Create Project"}
                 </Button>
               )}
             </div>
