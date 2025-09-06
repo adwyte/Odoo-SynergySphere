@@ -7,6 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { listMyProjects, createProject as apiCreateProject } from "@/lib/projects"
+import { useAuth } from "@/components/auth-provider"
+import { API } from "@/lib/api"
+import { useLogout } from "@/hooks/use-logout"
+
 import {
   Plus,
   Search,
@@ -29,12 +34,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAuth } from "@/components/auth-provider"
 import ProjectDetail from "@/components/project-detail"
 import NotificationDropdown from "@/components/notification-dropdown"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { getJSON, postJSON, API } from "@/lib/api"
-import { useLogout } from "@/hooks/use-logout"
 
 type ProjectStatus = "active" | "completed" | "overdue"
 
@@ -72,46 +74,47 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      setLoading(true)
-      setError(null)
+      if (!token) return
+      setLoading(true); setError(null)
       try {
-        const data = await getJSON<Project[]>("/api/v1/projects")
-        if (!cancelled) setProjects(data || [])
+        const data = await listMyProjects(token)
+        if (!cancelled)
+          setProjects(
+            (data || []).map((p) => ({
+              id: String(p.id),
+              name: p.name,
+              description: p.description,
+              members: p.members,
+              tasksCompleted: p.tasksCompleted,
+              totalTasks: p.totalTasks,
+              dueDate: p.dueDate,
+              status: p.status,
+              color: p.color,
+            })),
+          )
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Failed to load projects")
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
-    if (user) load()
-    return () => {
-      cancelled = true
-    }
-  }, [user])
+    load()
+    return () => { cancelled = true }
+  }, [token])
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.toLowerCase()
     return projects.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.description || "").toLowerCase().includes(q),
+      (p) => p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q),
     )
   }, [projects, searchQuery])
 
   const getStatusBadge = (status: ProjectStatus) => {
     switch (status) {
       case "active":
-        return (
-          <Badge variant="default" className="bg-primary text-primary-foreground">
-            Active
-          </Badge>
-        )
+        return <Badge variant="default" className="bg-primary text-primary-foreground">Active</Badge>
       case "completed":
-        return (
-          <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">
-            Completed
-          </Badge>
-        )
+        return <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>
       case "overdue":
         return <Badge variant="destructive">Overdue</Badge>
       default:
@@ -124,24 +127,31 @@ export default function Dashboard() {
     return Math.round((completed / total) * 100)
   }
 
-  const handleProjectClick = (project: Project) => {
-    setSelectedProject(project)
-  }
-
-  const handleBackToDashboard = () => {
-    setSelectedProject(null)
-  }
+  const handleProjectClick = (project: Project) => setSelectedProject(project)
+  const handleBackToDashboard = () => setSelectedProject(null)
 
   const handleCreateProject = async () => {
+    if (!token) return alert("Please sign in first.")
     const name = prompt("Project name?")
     if (!name) return
     const description = prompt("Short description?") || ""
-    setCreating(true)
-    setError(null)
+    setCreating(true); setError(null)
     try {
-      await postJSON("/api/v1/projects", { name, description })
-      const data = await getJSON<Project[]>("/api/v1/projects")
-      setProjects(data || [])
+      await apiCreateProject(token, { name, description })
+      const data = await listMyProjects(token)
+      setProjects(
+        (data || []).map((p) => ({
+          id: String(p.id),
+          name: p.name,
+          description: p.description,
+          members: p.members,
+          tasksCompleted: p.tasksCompleted,
+          totalTasks: p.totalTasks,
+          dueDate: p.dueDate,
+          status: p.status,
+          color: p.color,
+        })),
+      )
     } catch (e: any) {
       setError(e?.message || "Failed to create project")
     } finally {
@@ -150,10 +160,7 @@ export default function Dashboard() {
   }
 
   const handleBootstrapDemo = async () => {
-    if (!token) {
-      alert("Please sign in first.")
-      return
-    }
+    if (!token) return alert("Please sign in first.")
     setBootstrapping(true)
     try {
       const res = await fetch(`${API}/api/v1/demo/bootstrap`, {
@@ -161,8 +168,20 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) throw new Error(await res.text())
-      const data = await getJSON<Project[]>("/api/v1/projects")
-      setProjects(data || [])
+      const data = await listMyProjects(token) // refresh via authed API
+      setProjects(
+        (data || []).map((p) => ({
+          id: String(p.id),
+          name: p.name,
+          description: p.description,
+          members: p.members,
+          tasksCompleted: p.tasksCompleted,
+          totalTasks: p.totalTasks,
+          dueDate: p.dueDate,
+          status: p.status,
+          color: p.color,
+        })),
+      )
     } catch (e: any) {
       setError(e?.message || "Failed to populate demo data")
     } finally {
@@ -193,23 +212,17 @@ export default function Dashboard() {
               <BarChart3 className="h-4 w-4" />
               Analytics
             </Button>
-
             <Button variant="ghost" size="sm" onClick={() => router.push("/team")} className="gap-2">
               <UserPlus className="h-4 w-4" />
               Team
             </Button>
-
-            {/* Always-visible Logout */}
             <Button variant="ghost" size="sm" onClick={doLogout} className="gap-2">
               <LogOut className="h-4 w-4" />
               Log out
             </Button>
-
             <ThemeToggle />
-
             <NotificationDropdown />
 
-            {/* Avatar menu (kept) */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
@@ -217,11 +230,7 @@ export default function Dashboard() {
                     <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.name || "User"} />
                     <AvatarFallback className="bg-primary text-primary-foreground">
                       {(user?.name || user?.email || "?")
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase()}
+                        .split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
@@ -251,7 +260,7 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="flex-1 space-y-6 p-4 md:p-6">
-        {/* Welcome Section */}
+        {/* Welcome */}
         <div className="space-y-2">
           <h2 className="text-2xl font-bold text-foreground">
             Welcome back, {(user?.name || user?.email || "there").split(" ")[0]}!
@@ -259,7 +268,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground">Here's what's happening with your projects today.</p>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -310,7 +319,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Projects Section */}
+        {/* Projects */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-lg font-semibold text-foreground">Your Projects</h3>
@@ -335,11 +344,9 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Loading / Error states */}
           {loading && <div className="text-sm text-muted-foreground">Loading projects…</div>}
           {error && <div className="text-sm text-red-500">Error: {error}</div>}
 
-          {/* Projects Grid */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => (
               <Card
@@ -403,7 +410,6 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* Empty state with demo populate */}
           {!loading && filteredProjects.length === 0 && (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
