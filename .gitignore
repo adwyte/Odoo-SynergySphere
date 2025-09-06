@@ -1,0 +1,61 @@
+# ── General ───────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+*.swo
+
+# ── OS junk ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Git ───────────────────────────────────────────────────────────────────
+.git-*
+!.gitignore
+!.gitattributes
+
+# ── Env files (keep examples) ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# ── IDEs ──────────────────────────────────────────────────────────────────
+# JetBrains / IntelliJ / WebStorm / PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+.history/
+
+# ── Node / Next.js (src/frontend) ─────────────────────────────────────────
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn/cache/
+.next/
+out/
+dist/
+coverage/
+storybook-static/
+.turbo/
+.parcel-cache/
+*.tsbuildinfo
+
+# ── Python (src/backend) ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.build/
+
+# ── Docker ────────────────────────────────────────────────────────────────
+docker-data/
