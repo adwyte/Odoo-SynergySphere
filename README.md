@@ -118,4 +118,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Contributions, issues, and feature requests are welcome! Feel free to check our issues page.
 
 ---
-Built with ❤️ by Team SynergySphere
+Built with ❤️ by Team Invictus_Crew
