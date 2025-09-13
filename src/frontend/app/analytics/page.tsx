@@ -34,11 +34,10 @@ const projectData = [
 ]
 
 const teamPerformance = [
-  { name: "Alice Johnson", tasksCompleted: 45, efficiency: 92, points: 1250 },
-  { name: "Bob Smith", tasksCompleted: 38, efficiency: 88, points: 1100 },
-  { name: "Carol Davis", tasksCompleted: 42, efficiency: 85, points: 1180 },
-  { name: "David Wilson", tasksCompleted: 35, efficiency: 90, points: 1050 },
-  { name: "Eva Brown", tasksCompleted: 40, efficiency: 87, points: 1120 },
+  { name: "Adwyte Karandikar", tasksCompleted: 45, efficiency: 92, points: 1250 },
+  { name: "Sanskar Kulkarni", tasksCompleted: 38, efficiency: 88, points: 1100 },
+  { name: "Jay Gadre", tasksCompleted: 42, efficiency: 85, points: 1180 },
+  { name: "Swarada Joshi", tasksCompleted: 35, efficiency: 90, points: 1050 },
 ]
 
 const taskDistribution = [

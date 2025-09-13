@@ -363,7 +363,7 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <Button variant="outline" className="w-full" onClick={() => router.push(`/project/${project.id}`)}>
+                  <Button variant="outline" className="w-full" onClick={() => router.push(`/projects/${project.id}`)}>
                     Open project
                   </Button>
                 </CardContent>

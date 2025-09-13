@@ -24,8 +24,8 @@ import { useRouter } from "next/navigation"
 const teamMembers = [
   {
     id: 1,
-    name: "Alice Johnson",
-    email: "alice@company.com",
+    name: "Adwyte Karandikar",
+    email: "adwyte28@gmail.com",
     role: "Admin",
     department: "Engineering",
     joinDate: "2023-01-15",
@@ -36,8 +36,8 @@ const teamMembers = [
   },
   {
     id: 2,
-    name: "Bob Smith",
-    email: "bob@company.com",
+    name: "Sanskar Kulkarni",
+    email: "sanskarkulkarni@gmail.com",
     role: "Member",
     department: "Design",
     joinDate: "2023-03-20",
@@ -48,14 +48,26 @@ const teamMembers = [
   },
   {
     id: 3,
-    name: "Carol Davis",
-    email: "carol@company.com",
+    name: "Jay Gadre",
+    email: "jaygadre@gmail.com",
     role: "Member",
     department: "Marketing",
     joinDate: "2023-02-10",
     avatar: "/placeholder.svg?height=40&width=40",
     status: "online",
     tasksCompleted: 42,
+    currentProjects: 4,
+  },
+  {
+    id: 4,
+    name: "Swarada Joshi",
+    email: "swarada05@gmail.com",
+    role: "Member",
+    department: "Sales",
+    joinDate: "2023-02-11",
+    avatar: "/placeholder.svg?height=40&width=40",
+    status: "online",
+    tasksCompleted: 35,
     currentProjects: 4,
   },
 ]
@@ -188,6 +200,7 @@ export default function TeamPage() {
                   <SelectItem value="engineering">Engineering</SelectItem>
                   <SelectItem value="design">Design</SelectItem>
                   <SelectItem value="marketing">Marketing</SelectItem>
+                  <SelectItem value="sales">Sales</SelectItem>
                 </SelectContent>
               </Select>
             </div>

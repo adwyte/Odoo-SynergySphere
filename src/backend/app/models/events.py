@@ -17,6 +17,6 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # optional relationships (handy but not required)
-    project = relationship("Project", back_populates="messages", lazy="joined", viewonly=True)
-    author = relationship("User", lazy="joined", viewonly=True)
+    # NOTE: this requires Project.messages to exist (we added it above)
+    project = relationship("Project", back_populates="messages")
+    author = relationship("User")
