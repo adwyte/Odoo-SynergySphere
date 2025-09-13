@@ -1,8 +1,9 @@
+# app/api/routers/projects.py
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, case
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select, case  # ← import case here
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -56,21 +57,20 @@ def list_my_projects(db: Session = Depends(get_db), me: User = Depends(get_curre
     Return only projects where the current user is a member,
     shaped exactly like the dashboard expects.
     """
-    # members count per project
+    # members count
     members_ct = (
         select(ProjectMember.project_id, func.count(ProjectMember.user_id).label("members"))
         .group_by(ProjectMember.project_id)
         .subquery()
     )
 
-    # tasks summary per project
+    # tasks summary
     tasks_sum = (
         select(
             Task.project_id,
             func.count(Task.id).label("total"),
-            func.sum(
-                case((Task.status == TaskStatus.done, 1), else_=0)
-            ).label("done"),
+            # ✅ use sqlalchemy.case, not func.case
+            func.sum(case((Task.status == TaskStatus.done, 1), else_=0)).label("done"),
         )
         .group_by(Task.project_id)
         .subquery()
@@ -86,7 +86,6 @@ def list_my_projects(db: Session = Depends(get_db), me: User = Depends(get_curre
             func.coalesce(tasks_sum.c.done, 0).label("tasksCompleted"),
             func.coalesce(tasks_sum.c.total, 0).label("totalTasks"),
         )
-        .select_from(Project)  # be explicit about the FROM root
         .join(ProjectMember, ProjectMember.project_id == Project.id)
         .join(members_ct, members_ct.c.project_id == Project.id, isouter=True)
         .join(tasks_sum, tasks_sum.c.project_id == Project.id, isouter=True)

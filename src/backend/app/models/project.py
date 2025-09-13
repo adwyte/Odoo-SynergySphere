@@ -5,6 +5,7 @@ from app.db.base import Base
 
 class Project(Base):
     __tablename__ = "projects"
+
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), index=True)
     description: Mapped[str | None] = mapped_column(String(1000))
@@ -14,3 +15,6 @@ class Project(Base):
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
     threads = relationship("ProjectThread", back_populates="project", cascade="all, delete-orphan")
+
+    # ✅ add this line so Message.project(back_populates="messages") can find it
+    messages = relationship("Message", back_populates="project", cascade="all, delete-orphan")
