@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChevronLeft, CheckCircle, Send, Settings2 } from "lucide-react";
+import { ChevronLeft, CheckCircle, Send } from "lucide-react";
 import { getJSON, postJSON, API } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { listMembers, type Member } from "@/lib/members";
@@ -133,14 +133,18 @@ export default function ProjectDetail({
   const [msgText, setMsgText] = useState("");
   const [postingMsg, setPostingMsg] = useState(false);
 
+  // invite member (ADDED)
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+
   // load data
   useEffect(() => {
     let cancelled = false;
 
     async function loadInner() {
       const [mem, apiTasks, msgs] = await Promise.all([
-        listMembers(pidNum, token!),                 // ✅ sends token
-        listTasks(pidNum, token!),                   // ✅ sends token
+        listMembers(pidNum, token!), // ✅ sends token
+        listTasks(pidNum, token!), // ✅ sends token
         getJSON<Message[]>(`/api/v1/projects/${pidNum}/messages`, token), // ✅ send token
       ]);
 
@@ -306,6 +310,31 @@ export default function ProjectDetail({
       alert(e?.message || "Failed to create task");
     } finally {
       setPostingTask(false);
+    }
+  };
+
+  // Invite member (ADDED)
+  const inviteMember = async () => {
+    const email = inviteEmail.trim();
+    if (!email || !token) return;
+    setInviting(true);
+    try {
+      const res = await fetch(`${API}/api/v1/projects/${pidNum}/members`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const mem = await listMembers(pidNum, token);
+      setMembers(mem || []);
+      setInviteEmail("");
+    } catch (e: any) {
+      alert(e?.message || "Failed to add member");
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -563,40 +592,57 @@ export default function ProjectDetail({
                   Team Members
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                {members.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center gap-3 border rounded-md p-3"
+              <CardContent className="space-y-4">
+                {/* Invite block (ADDED) */}
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Invite by email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <Button
+                    onClick={inviteMember}
+                    disabled={inviting || !inviteEmail.trim()}
                   >
-                    <InitialAvatar
-                      label={initials(m.name || m.email)}
-                      size="9"
-                    />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">
-                        {m.name || m.email}
+                    {inviting ? "Adding…" : "Add"}
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {members.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-center gap-3 border rounded-md p-3"
+                    >
+                      <InitialAvatar
+                        label={initials(m.name || m.email)}
+                        size="9"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">
+                          {m.name || m.email}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {m.email}
+                        </div>
+                        <div className="text-xs mt-1 flex items-center gap-3">
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" /> 0 done
+                          </span>
+                          <span className="flex items-center gap-1">
+                            1 project
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {m.email}
-                      </div>
-                      <div className="text-xs mt-1 flex items-center gap-3">
-                        <span className="flex items-center gap-1">
-                          <CheckCircle className="h-3 w-3" /> 0 done
-                        </span>
-                        <span className="flex items-center gap-1">
-                          1 project
-                        </span>
-                      </div>
+                      <Badge variant="secondary">—</Badge>
                     </div>
-                    <Badge variant="secondary">—</Badge>
-                  </div>
-                ))}
-                {members.length === 0 && (
-                  <div className="text-sm text-muted-foreground">
-                    No members yet.
-                  </div>
-                )}
+                  ))}
+                  {members.length === 0 && (
+                    <div className="text-sm text-muted-foreground">
+                      No members yet.
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -624,9 +670,7 @@ export default function ProjectDetail({
                     <InitialAvatar label={initials(l.name)} size="8" />
                     <div className="flex-1">
                       <div className="text-sm font-medium">{l.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        Score
-                      </div>
+                      <div className="text-xs text-muted-foreground">Score</div>
                     </div>
                     <Badge>{l.score.toFixed(1)}</Badge>
                   </div>
@@ -645,29 +689,29 @@ export default function ProjectDetail({
 function TaskRow({
   t,
   members,
-  onSetStatus,   // only "todo" | "in-progress"
-  onDoneToggle,  // checkbox → done / todo
+  onSetStatus, // only "todo" | "in-progress"
+  onDoneToggle, // checkbox → done / todo
   onAssign,
 }: {
   t: {
-    id: number
-    title: string
-    description?: string
-    assigneeId: number | null
-    assigneeName: string
-    status: "todo" | "in-progress" | "done"
-    priority: "low" | "medium" | "high"
-    dueDate: string | null
-  }
-  members: Member[]
-  onSetStatus: (s: "todo" | "in-progress") => void
-  onDoneToggle: (checked: boolean) => void
-  onAssign: (assigneeId: number | null) => void
+    id: number;
+    title: string;
+    description?: string;
+    assigneeId: number | null;
+    assigneeName: string;
+    status: "todo" | "in-progress" | "done";
+    priority: "low" | "medium" | "high";
+    dueDate: string | null;
+  };
+  members: Member[];
+  onSetStatus: (s: "todo" | "in-progress") => void;
+  onDoneToggle: (checked: boolean) => void;
+  onAssign: (assigneeId: number | null) => void;
 }) {
-  const isDone = t.status === "done"
+  const isDone = t.status === "done";
   // What the control should show when a task is done; we keep the flow between todo <-> in-progress
   const flowStatus: "todo" | "in-progress" =
-    t.status === "done" ? "todo" : (t.status as "todo" | "in-progress")
+    t.status === "done" ? "todo" : (t.status as "todo" | "in-progress");
 
   return (
     <div className="border rounded-md p-3">
@@ -764,5 +808,5 @@ function TaskRow({
         </div>
       </div>
     </div>
-  )
+  );
 }
