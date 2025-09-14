@@ -35,9 +35,9 @@ const projectData = [
 
 const teamPerformance = [
   { name: "Adwyte Karandikar", tasksCompleted: 45, efficiency: 92, points: 1250 },
-  { name: "Sanskar Kulkarni", tasksCompleted: 38, efficiency: 88, points: 1100 },
+  { name: "Sanskar Kulkarni", tasksCompleted: 41, efficiency: 88, points: 1200 },
   { name: "Jay Gadre", tasksCompleted: 42, efficiency: 85, points: 1180 },
-  { name: "Swarada Joshi", tasksCompleted: 35, efficiency: 90, points: 1050 },
+  { name: "Swarada Joshi", tasksCompleted: 35, efficiency: 84, points: 1050 },
 ]
 
 const taskDistribution = [
